@@ -1,175 +1,169 @@
 import os
 import json
 import logging
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+)
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
-    MessageHandler, ConversationHandler, ContextTypes, filters
+    MessageHandler, filters, ConversationHandler, ContextTypes
 )
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# ---------------- Logger ----------------
+# --- Logging ---
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+logger = logging.getLogger(__name__)
 
-# ---------------- States ----------------
+# --- States ---
 STEP_NAME, STEP_SELECT_NUMBER, STEP_QUESTIONS = range(3)
 
-# ---------------- Google Sheets Setup ----------------
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-service_account_info = json.loads(os.environ["GOOGLE_SA_KEY"])
-creds = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
-client = gspread.authorize(creds)
-sheet = client.open_by_key(os.environ["SPREADSHEET_ID"]).sheet1
+# --- Google Sheets setup ---
+def init_gsheet():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    service_account_info = json.loads(os.environ["GOOGLE_SA_KEY"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(os.environ["SPREADSHEET_ID"]).sheet1
+    return sheet
 
-# ---------------- Questions ----------------
+SHEET = init_gsheet()
+
+# --- Questions ---
 QUESTIONS = [
-    "سوال اول را پاسخ دهید:",
-    "سوال دوم را پاسخ دهید:",
-    "سوال سوم را پاسخ دهید:",
-    "سوال چهارم را پاسخ دهید:"
+    "سوال اول: ...",
+    "سوال دوم: ...",
+    "سوال سوم: ...",
+    "سوال چهارم: ..."
 ]
 
-# ---------------- Handlers ----------------
+# --- Start ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش تصویر شروع و دکمه شروع"""
     keyboard = [[InlineKeyboardButton("شروع", callback_data="start")]]
     await update.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image1.jpg",
         caption="به ربات خوش آمدید!",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    return ConversationHandler.END  # مکالمه از طریق دکمه شروع آغاز می‌شود
+    return ConversationHandler.END
 
+# --- Start button pressed ---
 async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع گرفتن نام بعد از زدن دکمه شروع"""
     query = update.callback_query
     await query.answer()
-    await query.message.reply_text("لطفاً نام و نام خانوادگی خود را وارد کنید:")
+    await query.message.reply_text("نام و نام خانوادگی خود را وارد کنید:")
     return STEP_NAME
 
-async def get_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ذخیره نام و رفتن به انتخاب عدد"""
-    context.user_data["name"] = update.message.text.strip()
-
-    # تصویر دکمه‌های عددی
-    keyboard = [
-        [InlineKeyboardButton(str(i), callback_data=f"num_{i}") for i in range(1, 6)],
-        [InlineKeyboardButton(str(i), callback_data=f"num_{i}") for i in range(6, 10)]
-    ]
+# --- Receive Name ---
+async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["name"] = update.message.text
+    # Show number selection
+    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"num_{i}")] for i in range(1, 10)]
     await update.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image2.jpg",
-        caption="یک عدد را انتخاب کنید:",
+        caption="یک عدد از ۱ تا ۹ انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return STEP_SELECT_NUMBER
 
+# --- Number selected ---
 async def select_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ذخیره عدد انتخابی و رفتن به سوال اول"""
     query = update.callback_query
     await query.answer()
     number = query.data.split("_")[1]
     context.user_data["selected_number"] = number
     context.user_data["answers"] = [""] * len(QUESTIONS)
     context.user_data["current_q"] = 0
-
-    # نمایش سوال اول
-    keyboard = [[InlineKeyboardButton("سوال بعد ➡", callback_data="next_q")]]
-    await query.message.reply_text(QUESTIONS[0], reply_markup=InlineKeyboardMarkup(keyboard))
+    await send_question(query.message, context)
     return STEP_QUESTIONS
 
-async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ذخیره پاسخ فعلی و انتظار دستور بعدی"""
-    current_q = context.user_data["current_q"]
-    context.user_data["answers"][current_q] = update.message.text.strip()
+# --- Send question with navigation ---
+async def send_question(message, context):
+    q_index = context.user_data["current_q"]
+    question_text = QUESTIONS[q_index]
+    answer = context.user_data["answers"][q_index]
+
+    buttons = []
+    if q_index > 0:
+        buttons.append(InlineKeyboardButton("⬅ سوال قبل", callback_data="prev"))
+    if q_index < len(QUESTIONS) - 1:
+        buttons.append(InlineKeyboardButton("➡ سوال بعد", callback_data="next"))
+    buttons.append(InlineKeyboardButton("✅ ثبت پاسخ", callback_data="submit"))
+
+    await message.reply_text(
+        f"{question_text}
+
+پاسخ فعلی: {answer or '---'}",
+        reply_markup=InlineKeyboardMarkup([buttons])
+    )
+
+# --- Handle text answer ---
+async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q_index = context.user_data["current_q"]
+    context.user_data["answers"][q_index] = update.message.text
+    # سوال فعلی رو دوباره نشون میدیم با جواب جدید
+    await send_question(update.message, context)
     return STEP_QUESTIONS
 
-async def navigate_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """جابجایی بین سوالات"""
+# --- Navigation buttons ---
+async def nav_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    current_q = context.user_data["current_q"]
+    q_index = context.user_data["current_q"]
 
-    # ذخیره متن آخرین پیام
-    if query.message.reply_to_message and query.message.reply_to_message.text:
-        context.user_data["answers"][current_q] = query.message.reply_to_message.text.strip()
-
-    if query.data == "next_q":
-        if current_q < len(QUESTIONS) - 1:
-            context.user_data["current_q"] += 1
-        else:
-            # سوال آخر -> دکمه ثبت نهایی
-            keyboard = [[InlineKeyboardButton("✅ ثبت نهایی", callback_data="final_submit")]]
-            await query.message.reply_text(QUESTIONS[current_q], reply_markup=InlineKeyboardMarkup(keyboard))
-            return STEP_QUESTIONS
-
-    elif query.data == "prev_q" and current_q > 0:
+    if query.data == "prev":
         context.user_data["current_q"] -= 1
+    elif query.data == "next":
+        context.user_data["current_q"] += 1
+    elif query.data == "submit":
+        await submit_all(query.message, context)
+        return ConversationHandler.END
 
-    # دکمه‌های ناوبری
-    nav_buttons = []
-    if context.user_data["current_q"] > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅ سوال قبل", callback_data="prev_q"))
-    if context.user_data["current_q"] < len(QUESTIONS) - 1:
-        nav_buttons.append(InlineKeyboardButton("سوال بعد ➡", callback_data="next_q"))
-    else:
-        nav_buttons.append(InlineKeyboardButton("✅ ثبت نهایی", callback_data="final_submit"))
-
-    await query.message.reply_text(
-        QUESTIONS[context.user_data["current_q"]],
-        reply_markup=InlineKeyboardMarkup([nav_buttons])
-    )
+    await send_question(query.message, context)
     return STEP_QUESTIONS
 
-async def final_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ثبت نهایی پاسخ‌ها در Google Sheet"""
-    query = update.callback_query
-    await query.answer()
-
-    name = context.user_data.get("name", "")
-    selected_number = context.user_data.get("selected_number", "")
-    answers = context.user_data.get("answers", [])
-
-    # اضافه کردن داده‌ها به شیت
-    sheet.append_row([name, selected_number] + answers)
-
-    await query.message.reply_photo(
+# --- Submit all ---
+async def submit_all(message, context: ContextTypes.DEFAULT_TYPE):
+    data_row = [
+        context.user_data.get("name", ""),
+        context.user_data.get("selected_number", "")
+    ]
+    data_row.extend(context.user_data.get("answers", []))
+    SHEET.append_row(data_row)
+    await message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image3.jpg",
-        caption="اطلاعات شما با موفقیت ثبت شد 🙏"
+        caption="اطلاعات شما با موفقیت ثبت شد. ممنون!"
     )
-    return ConversationHandler.END
 
+# --- Cancel ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("عملیات لغو شد.")
+    await update.message.reply_text("فرآیند لغو شد.")
     return ConversationHandler.END
 
-# ---------------- Main App ----------------
-if __name__ == "__main__":
+# --- Main ---
+def main():
     app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
 
-    conv_handler = ConversationHandler(
+    conv = ConversationHandler(
         entry_points=[
             CommandHandler("start", start),
             CallbackQueryHandler(start_button, pattern="^start$")
         ],
         states={
-            STEP_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, get_name)
-            ],
-            STEP_SELECT_NUMBER: [
-                CallbackQueryHandler(select_number, pattern="^num_")
-            ],
+            STEP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
+            STEP_SELECT_NUMBER: [CallbackQueryHandler(select_number, pattern="^num_")],
             STEP_QUESTIONS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer),
-                CallbackQueryHandler(navigate_question, pattern="^(prev_q|next_q)$"),
-                CallbackQueryHandler(final_submit, pattern="^final_submit$")
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_answer),
+                CallbackQueryHandler(nav_buttons, pattern="^(prev|next|submit)$")
             ]
         },
-        fallbacks=[CommandHandler("cancel", cancel)],
-        allow_reentry=True
+        fallbacks=[CommandHandler("cancel", cancel)]
     )
 
-    app.add_handler(conv_handler)
+    app.add_handler(conv)
     app.run_polling()
+
+if __name__ == "__main__":
+    main()
