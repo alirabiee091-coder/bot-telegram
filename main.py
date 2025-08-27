@@ -8,10 +8,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 # مراحل گفتگو
 STEP_NAME, STEP_SELECT_NUMBER, STEP_QUESTION = range(3)
 
-# اتصال به Google Sheet
+# اتصال به Google Sheet با استفاده از Environment Variable
+import json
+
 scope = ["https://www.googleapis.com/auth/spreadsheets"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("service_account.json", scope)
+service_account_info = json.loads(os.environ["GOOGLE_SA_KEY"])
+creds = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
 client = gspread.authorize(creds)
+
 spreadsheet = client.open_by_key(os.environ.get("SPREADSHEET_ID"))
 sheet = spreadsheet.sheet1
 
