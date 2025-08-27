@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+    Update, InlineKeyboardButton, InlineKeyboardMarkup
 )
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
@@ -13,7 +13,8 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 # --- Logging ---
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,8 @@ STEP_NAME, STEP_SELECT_NUMBER, STEP_QUESTIONS = range(3)
 
 # --- Google Sheets setup ---
 def init_gsheet():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    scope = ["https://spreadsheets.google.com/feeds",
+             "https://www.googleapis.com/auth/drive"]
     service_account_info = json.loads(os.environ["GOOGLE_SA_KEY"])
     creds = ServiceAccountCredentials.from_json_keyfile_dict(service_account_info, scope)
     client = gspread.authorize(creds)
@@ -39,7 +41,7 @@ QUESTIONS = [
     "سوال چهارم: ..."
 ]
 
-# --- Start ---
+# --- Start command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("شروع", callback_data="start")]]
     await update.message.reply_photo(
@@ -49,7 +51,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# --- Start button pressed ---
+# --- Start button ---
 async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -60,7 +62,8 @@ async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
     # Show number selection
-    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"num_{i}")] for i in range(1, 10)]
+    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"num_{i}")]
+                for i in range(1, 10)]
     await update.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image2.jpg",
         caption="یک عدد از ۱ تا ۹ انتخاب کنید:",
@@ -92,18 +95,17 @@ async def send_question(message, context):
         buttons.append(InlineKeyboardButton("➡ سوال بعد", callback_data="next"))
     buttons.append(InlineKeyboardButton("✅ ثبت پاسخ", callback_data="submit"))
 
-    await message.reply_text(
-        f"{question_text}
+    text_to_send = f"{question_text}\n\nپاسخ فعلی: {answer or '---'}"
 
-پاسخ فعلی: {answer or '---'}",
+    await message.reply_text(
+        text=text_to_send,
         reply_markup=InlineKeyboardMarkup([buttons])
     )
 
-# --- Handle text answer ---
+# --- Receive answer ---
 async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q_index = context.user_data["current_q"]
     context.user_data["answers"][q_index] = update.message.text
-    # سوال فعلی رو دوباره نشون میدیم با جواب جدید
     await send_question(update.message, context)
     return STEP_QUESTIONS
 
@@ -111,7 +113,6 @@ async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def nav_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    q_index = context.user_data["current_q"]
 
     if query.data == "prev":
         context.user_data["current_q"] -= 1
@@ -124,7 +125,7 @@ async def nav_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_question(query.message, context)
     return STEP_QUESTIONS
 
-# --- Submit all ---
+# --- Submit all answers ---
 async def submit_all(message, context: ContextTypes.DEFAULT_TYPE):
     data_row = [
         context.user_data.get("name", ""),
@@ -132,6 +133,7 @@ async def submit_all(message, context: ContextTypes.DEFAULT_TYPE):
     ]
     data_row.extend(context.user_data.get("answers", []))
     SHEET.append_row(data_row)
+
     await message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image3.jpg",
         caption="اطلاعات شما با موفقیت ثبت شد. ممنون!"
