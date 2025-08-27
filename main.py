@@ -1,9 +1,7 @@
 import os
 import json
 import logging
-from telegram import (
-    Update, InlineKeyboardButton, InlineKeyboardMarkup
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, CallbackQueryHandler,
     MessageHandler, filters, ConversationHandler, ContextTypes
@@ -12,10 +10,8 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 # --- Logging ---
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
+logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                    level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- States ---
@@ -61,9 +57,17 @@ async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Receive Name ---
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
-    # Show number selection
-    keyboard = [[InlineKeyboardButton(str(i), callback_data=f"num_{i}")]
-                for i in range(1, 10)]
+
+    # Create 3-column button layout (1-9)
+    keyboard = []
+    for i in range(1, 10, 3):
+        row = [
+            InlineKeyboardButton(str(i), callback_data=f"num_{i}"),
+            InlineKeyboardButton(str(i+1), callback_data=f"num_{i+1}"),
+            InlineKeyboardButton(str(i+2), callback_data=f"num_{i+2}")
+        ]
+        keyboard.append(row)
+
     await update.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image2.jpg",
         caption="یک عدد از ۱ تا ۹ انتخاب کنید:",
@@ -79,54 +83,34 @@ async def select_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["selected_number"] = number
     context.user_data["answers"] = [""] * len(QUESTIONS)
     context.user_data["current_q"] = 0
-    await send_question(query.message, context)
+
+    # Ask first question
+    await query.message.reply_text(QUESTIONS[0])
     return STEP_QUESTIONS
 
-# --- Send question with navigation ---
-async def send_question(message, context):
-    q_index = context.user_data["current_q"]
-    question_text = QUESTIONS[q_index]
-    answer = context.user_data["answers"][q_index]
-
-    buttons = []
-    if q_index > 0:
-        buttons.append(InlineKeyboardButton("⬅ سوال قبل", callback_data="prev"))
-    if q_index < len(QUESTIONS) - 1:
-        buttons.append(InlineKeyboardButton("➡ سوال بعد", callback_data="next"))
-    buttons.append(InlineKeyboardButton("✅ ثبت پاسخ", callback_data="submit"))
-
-    text_to_send = f"{question_text}\n\nپاسخ فعلی: {answer or '---'}"
-
-    await message.reply_text(
-        text=text_to_send,
-        reply_markup=InlineKeyboardMarkup([buttons])
-    )
-
-# --- Receive answer ---
+# --- Receive answer for questions sequentially ---
 async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q_index = context.user_data["current_q"]
     context.user_data["answers"][q_index] = update.message.text
-    await send_question(update.message, context)
-    return STEP_QUESTIONS
 
-# --- Navigation buttons ---
-async def nav_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if q_index < len(QUESTIONS) - 1:
+        context.user_data["current_q"] += 1
+        await update.message.reply_text(QUESTIONS[context.user_data["current_q"]])
+        return STEP_QUESTIONS
+    else:
+        # Last question answered → show Submit button
+        keyboard = [[InlineKeyboardButton("✅ ثبت نهایی", callback_data="submit")]]
+        await update.message.reply_text(
+            text="برای ارسال پاسخ‌ها روی دکمه زیر بزنید:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return STEP_QUESTIONS
+
+# --- Submit all answers ---
+async def submit_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "prev":
-        context.user_data["current_q"] -= 1
-    elif query.data == "next":
-        context.user_data["current_q"] += 1
-    elif query.data == "submit":
-        await submit_all(query.message, context)
-        return ConversationHandler.END
-
-    await send_question(query.message, context)
-    return STEP_QUESTIONS
-
-# --- Submit all answers ---
-async def submit_all(message, context: ContextTypes.DEFAULT_TYPE):
     data_row = [
         context.user_data.get("name", ""),
         context.user_data.get("selected_number", "")
@@ -134,10 +118,11 @@ async def submit_all(message, context: ContextTypes.DEFAULT_TYPE):
     data_row.extend(context.user_data.get("answers", []))
     SHEET.append_row(data_row)
 
-    await message.reply_photo(
+    await query.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image3.jpg",
         caption="اطلاعات شما با موفقیت ثبت شد. ممنون!"
     )
+    return ConversationHandler.END
 
 # --- Cancel ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -158,7 +143,7 @@ def main():
             STEP_SELECT_NUMBER: [CallbackQueryHandler(select_number, pattern="^num_")],
             STEP_QUESTIONS: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_answer),
-                CallbackQueryHandler(nav_buttons, pattern="^(prev|next|submit)$")
+                CallbackQueryHandler(submit_all, pattern="^submit$")
             ]
         },
         fallbacks=[CommandHandler("cancel", cancel)]
