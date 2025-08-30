@@ -15,7 +15,7 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # --- States ---
-STEP_NAME, STEP_SELECT_NUMBER, STEP_QUESTIONS = range(3)
+STEP_NAME, STEP_SELECT_TYPE, STEP_DYNAMIC_QUESTIONS = range(3)
 
 # --- Google Sheets setup ---
 def init_gsheet():
@@ -29,13 +29,50 @@ def init_gsheet():
 
 SHEET = init_gsheet()
 
-# --- Questions ---
-QUESTIONS = [
-    "سوال اول: ...",
-    "سوال دوم: ...",
-    "سوال سوم: ...",
-    "سوال چهارم: ..."
-]
+# --- Questions by type ---
+QUESTIONS_BY_TYPE = {
+    "hero": [
+        {
+            "q": "قدرت یا توانایی اصلی او چیست؟",
+            "options": [
+                "قدرت فیزیکی", "سرعت", "کنترل زمان", "پرواز",
+                "نامرئی شدن", "التیام‌بخشی", "کنترل عناصر",
+                "کنترل ذهن", "تغییر شکل", "تولید انرژی یا نور",
+                "فناوری پیشرفته"
+            ]
+        },
+        {
+            "q": "ویژگی شخصیتی محوری او چیست؟",
+            "options": [
+                "شجاعت", "ازخودگذشتگی", "عدالت‌خواهی",
+                "مهربانی", "شوخ‌طبعی", "انضباط",
+                "آرامش", "جذبه", "ماجراجویی"
+            ]
+        },
+        {
+            "q": "رنگ یا ترکیب رنگ لباس او چیست؟",
+            "options": [
+                "آبی تیره و نقره‌ای", "مشکی و قرمز", "سبز و طلایی",
+                "سفید و آبی روشن", "قرمز و طلایی", "بنفش و نقره‌ای",
+                "خاکستری و نارنجی نئونی", "آبی نفتی و زرد",
+                "مشکی و فیروزه‌ای", "تمام سفید با جزئیات متالیک",
+                "قرمز، سفید و آبی"
+            ]
+        },
+        {
+            "q": "جزئیات ویژه لباس چیست؟",
+            "options": [
+                "خطوط نئونی", "زره متالیک", "بافت مات",
+                "شنل", "ماسک کامل", "نیم‌ماسک",
+                "دستکش و چکمه", "کمربند ابزار",
+                "شانه‌بند یا زره شانه‌ای"
+            ]
+        },
+    ],
+    "monster": [],  # بعداً پر می‌کنیم
+    "alien": [],    # بعداً پر می‌کنیم
+    "doll": []      # بعداً پر می‌کنیم
+}
 
 # --- Start command ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -57,74 +94,80 @@ async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Receive Name ---
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
-
-    # Custom 2x2 button layout
     keyboard = [
         [
-            InlineKeyboardButton("🦸‍♂️ قهرمان درون", callback_data="num_hero"),
-            InlineKeyboardButton("🐉 هیولای درون", callback_data="num_monster")
+            InlineKeyboardButton("🦸‍♂️ قهرمان درون", callback_data="type_hero"),
+            InlineKeyboardButton("🐉 هیولای درون", callback_data="type_monster")
         ],
         [
-            InlineKeyboardButton("👽 موجود فضایی", callback_data="num_alien"),
-            InlineKeyboardButton("🧸 عروسک همزاد", callback_data="num_doll")
+            InlineKeyboardButton("👽 موجود فضایی", callback_data="type_alien"),
+            InlineKeyboardButton("🧸 عروسک همزاد", callback_data="type_doll")
         ]
     ]
-
     await update.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image2.jpg",
         caption="یک گزینه را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
-    return STEP_SELECT_NUMBER
+    return STEP_SELECT_TYPE
 
-# --- Number selected ---
-async def select_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- Type selected ---
+async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    number = query.data.split("_", 1)[1]  # hero, monster, alien, doll
-    context.user_data["selected_number"] = number
-    context.user_data["answers"] = [""] * len(QUESTIONS)
+    type_key = query.data.split("_", 1)[1]  # hero, monster, alien, doll
+    context.user_data["selected_type"] = type_key
     context.user_data["current_q"] = 0
+    context.user_data["answers"] = []
 
-    # Ask first question
-    await query.message.reply_text(QUESTIONS[0])
-    return STEP_QUESTIONS
+    await send_question(query.message, context)
+    return STEP_DYNAMIC_QUESTIONS
 
-# --- Receive answer for questions sequentially ---
-async def receive_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# --- Send question helper ---
+async def send_question(message, context):
+    type_key = context.user_data["selected_type"]
     q_index = context.user_data["current_q"]
-    context.user_data["answers"][q_index] = update.message.text
+    q_data = QUESTIONS_BY_TYPE[type_key][q_index]
 
-    if q_index < len(QUESTIONS) - 1:
-        context.user_data["current_q"] += 1
-        await update.message.reply_text(QUESTIONS[context.user_data["current_q"]])
-        return STEP_QUESTIONS
-    else:
-        # Last question answered → show Submit button
-        keyboard = [[InlineKeyboardButton("✅ ثبت نهایی", callback_data="submit")]]
-        await update.message.reply_text(
-            text="برای ارسال پاسخ‌ها روی دکمه زیر بزنید:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return STEP_QUESTIONS
+    # ساخت دکمه‌ها
+    keyboard = []
+    row = []
+    for i, option in enumerate(q_data["options"], start=1):
+        row.append(InlineKeyboardButton(option, callback_data=f"ans_{option}"))
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
 
-# --- Submit all answers ---
-async def submit_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await message.reply_text(
+        text=q_data["q"],
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+# --- Answer selected ---
+async def answer_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    answer_text = query.data.split("_", 1)[1]
+    context.user_data["answers"].append(answer_text)
 
-    data_row = [
-        context.user_data.get("name", ""),
-        context.user_data.get("selected_number", "")
-    ]
-    data_row.extend(context.user_data.get("answers", []))
-    SHEET.append_row(data_row)
+    if context.user_data["current_q"] < len(QUESTIONS_BY_TYPE[context.user_data["selected_type"]]) - 1:
+        context.user_data["current_q"] += 1
+        await send_question(query.message, context)
+        return STEP_DYNAMIC_QUESTIONS
+    else:
+        # ذخیره در شیت
+        SHEET.append_row([
+            context.user_data.get("name", ""),
+            context.user_data.get("selected_type", "")
+        ] + context.user_data["answers"])
 
-    await query.message.reply_photo(
-        photo="https://chandeen.ir/wp-content/uploads/2025/08/image3.jpg",
-        caption="اطلاعات شما با موفقیت ثبت شد. ممنون!"
-    )
-    return ConversationHandler.END
+        await query.message.reply_photo(
+            photo="https://chandeen.ir/wp-content/uploads/2025/08/image3.jpg",
+            caption="اطلاعات شما با موفقیت ثبت شد. ممنون!"
+        )
+        return ConversationHandler.END
 
 # --- Cancel ---
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -142,10 +185,9 @@ def main():
         ],
         states={
             STEP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
-            STEP_SELECT_NUMBER: [CallbackQueryHandler(select_number, pattern="^num_")],
-            STEP_QUESTIONS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_answer),
-                CallbackQueryHandler(submit_all, pattern="^submit$")
+            STEP_SELECT_TYPE: [CallbackQueryHandler(select_type, pattern="^type_")],
+            STEP_DYNAMIC_QUESTIONS: [
+                CallbackQueryHandler(answer_selected, pattern="^ans_")
             ]
         },
         fallbacks=[CommandHandler("cancel", cancel)]
