@@ -159,7 +159,7 @@ QUESTIONS_BY_TYPE = {
     ]
 }
 
-# --- Start command ---
+# --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton("شروع", callback_data="start")]]
     await update.message.reply_photo(
@@ -169,14 +169,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# --- Start button callback ---
 async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.message.reply_text("نام و نام خانوادگی خود را وارد کنید:")
     return STEP_NAME
 
-# --- Receive user name ---
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
     keyboard = [
@@ -196,7 +194,6 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return STEP_SELECT_TYPE
 
-# --- Handle type selection ---
 async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -207,7 +204,6 @@ async def select_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_question(query.message, context)
     return STEP_DYNAMIC_QUESTIONS
 
-# --- Send question ---
 async def send_question(message, context):
     type_key = context.user_data["selected_type"]
     q_index = context.user_data["current_q"]
@@ -223,7 +219,6 @@ async def send_question(message, context):
         keyboard.append(row)
     await message.reply_text(q_data["q"], reply_markup=InlineKeyboardMarkup(keyboard))
 
-# --- Handle answer ---
 async def answer_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -240,13 +235,31 @@ async def answer_selected(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ] + context.user_data["answers"])
         await query.message.reply_photo(
             photo="https://chandeen.ir/wp-content/uploads/2025/08/image3.jpg",
-            caption="اطلاعات شما با موفق: ContextTypes.DEFAULT_TYPE):
+            caption="اطلاعات شما با موفقیت ثبت شد. ممنون!"
+        )
+        return ConversationHandler.END
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("فرآیند لغو شد.")
     return ConversationHandler.END
 
-# --- Run bot ---
+# --- Main ---
 def main():
     app = ApplicationBuilder().token(os.environ["BOT_TOKEN"]).build()
     conv = ConversationHandler(
         entry_points=[
-            CommandHandler("start",
+            CommandHandler("start", start),
+            CallbackQueryHandler(start_button, pattern="^start$")
+        ],
+        states={
+            STEP_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_name)],
+            STEP_SELECT_TYPE: [CallbackQueryHandler(select_type, pattern="^type_")],
+            STEP_DYNAMIC_QUESTIONS: [CallbackQueryHandler(answer_selected, pattern="^ans_")]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)]
+    )
+    app.add_handler(conv)
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
