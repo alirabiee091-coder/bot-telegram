@@ -58,19 +58,21 @@ async def start_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["name"] = update.message.text
 
-    # Create 3-column button layout (1-9)
-    keyboard = []
-    for i in range(1, 10, 3):
-        row = [
-            InlineKeyboardButton(str(i), callback_data=f"num_{i}"),
-            InlineKeyboardButton(str(i+1), callback_data=f"num_{i+1}"),
-            InlineKeyboardButton(str(i+2), callback_data=f"num_{i+2}")
+    # Custom 2x2 button layout
+    keyboard = [
+        [
+            InlineKeyboardButton("🦸‍♂️ قهرمان درون", callback_data="num_hero"),
+            InlineKeyboardButton("🐉 هیولای درون", callback_data="num_monster")
+        ],
+        [
+            InlineKeyboardButton("👽 موجود فضایی", callback_data="num_alien"),
+            InlineKeyboardButton("🧸 عروسک همزاد", callback_data="num_doll")
         ]
-        keyboard.append(row)
+    ]
 
     await update.message.reply_photo(
         photo="https://chandeen.ir/wp-content/uploads/2025/08/image2.jpg",
-        caption="یک عدد از ۱ تا ۹ انتخاب کنید:",
+        caption="یک گزینه را انتخاب کنید:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return STEP_SELECT_NUMBER
@@ -79,7 +81,7 @@ async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def select_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    number = query.data.split("_")[1]
+    number = query.data.split("_", 1)[1]  # hero, monster, alien, doll
     context.user_data["selected_number"] = number
     context.user_data["answers"] = [""] * len(QUESTIONS)
     context.user_data["current_q"] = 0
